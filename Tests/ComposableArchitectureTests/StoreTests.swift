@@ -388,4 +388,61 @@ final class StoreTests: XCTestCase {
       .do { subject.send(completion: .finished) }
     )
   }
+
+    func testOptionalScope_scopedStoreOutLivesNiledState() throws {
+
+        struct MainState : Equatable {
+            var optionalValue: String?
+        }
+
+        enum MainAction {
+            case reset
+            case childAction(ChildAction)
+        }
+
+
+        enum ChildAction {
+            case update(String)
+        }
+
+        let childReducer = Reducer<String, ChildAction, Void> { state, action, _ in
+            switch action {
+                case .update(let value):
+                    state = value
+            }
+            return .none
+        }
+
+        let mainReducer = Reducer<MainState, MainAction, Void>.combine(
+            childReducer.optional().pullback(state: \.optionalValue, action: /MainAction.childAction, environment: { $0 }),
+            Reducer<MainState, MainAction, Void> { state, action, _ in
+                switch action {
+                    case .reset:
+                        state.optionalValue = nil
+                        return .none
+                    default:
+                        return .none
+                }
+            }
+        )
+
+        let parentStore = Store(initialState: MainState(optionalValue: "hello"), reducer: mainReducer, environment: ())
+        let scopedStore: Store<String, ChildAction>? = parentStore.optionalScope(state: \.optionalValue, action: { .childAction($0) })
+        let store = try XCTUnwrap(scopedStore)
+
+        store.send(.update("hello world"))
+
+        XCTAssertEqual(ViewStore(parentStore).state.optionalValue, "hello world")
+        XCTAssertEqual(ViewStore(store).state, "hello world")
+
+        parentStore.send(.reset)
+
+        XCTAssertEqual(ViewStore(parentStore).state.optionalValue, nil)
+        XCTAssertEqual(ViewStore(store).state, "hello world")
+
+        store.send(.update("new world doesn't exist"))
+
+        XCTAssertEqual(ViewStore(parentStore).state.optionalValue, nil)
+        XCTAssertEqual(ViewStore(store).state, "hello world")
+    }
 }
