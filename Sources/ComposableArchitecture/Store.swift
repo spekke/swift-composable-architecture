@@ -181,19 +181,30 @@ public final class Store<State, Action> {
 
 
     public func optionalScope<LocalState, LocalAction>(
-        state toLocalState: @escaping (State) -> LocalState?,
+        state localKeyPath: KeyPath<State, LocalState?>,
         action fromLocalAction: @escaping (LocalAction) -> Action
     ) -> Store<LocalState, LocalAction>? {
 
-        guard let initialState = toLocalState(self.state.value) else {
+        guard let initialState = self.state.value[keyPath: localKeyPath] else {
             return nil
         }
 
         let localStore = Store<LocalState, LocalAction>(
             initialState: initialState,
             reducer: { localState, localAction in
+                guard self.state.value[keyPath: localKeyPath] != nil else {
+                    print("""
+                        "\(debugCaseOutput(localAction))" was received by an optional reducer \
+                        when its local state "\(LocalState.self)" in parent state "\(State.self)" \
+                        was "nil", this can lead to undefined behaviors.
+
+                        If this was expected you can ignore this warning.
+
+                        """)
+                    return .none
+                }
                 self.send(fromLocalAction(localAction))
-                if let newLocalState = toLocalState(self.state.value) {
+                if let newLocalState = self.state.value[keyPath: localKeyPath] {
                     localState = newLocalState
                 }
                 return .none
@@ -201,7 +212,7 @@ public final class Store<State, Action> {
         )
         localStore.parentCancellable = self.state
             .sink { [weak localStore] newValue in
-                if let newLocalState = toLocalState(newValue) {
+                if let newLocalState = newValue[keyPath: localKeyPath] {
                     localStore?.state.value = newLocalState
                 }
             }
