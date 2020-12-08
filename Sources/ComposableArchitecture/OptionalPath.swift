@@ -62,6 +62,33 @@ public struct OptionalPath<Root, Value> {
         )
     }
 
+    public init<OldValue>(_ keyPath: WritableKeyPath<Root, OldValue>, _ path: CasePath<OldValue, Value>) {
+        let optionalPath = OptionalPath<Root, OldValue>(
+            extract: { $0[keyPath: keyPath] },
+            set: { $0[keyPath: keyPath] = $1 }
+        )
+        self.init(
+            extract: { optionalPath.extract(from: $0).flatMap(path.extract(from:)) },
+            set: { root, appendedValue in
+                guard var value = optionalPath.extract(from: root) else { return }
+                path.set(into: &value, appendedValue)
+                optionalPath.set(into: &root, value)
+            }
+        )
+    }
+
+//    public init<OldValue>(_ keyPath: WritableKeyPath<Root, OldValue?>, case path: CasePath<OldValue, Value>) {
+//        let optionalPath = OptionalPath<Root, OldValue>(keyPath)
+//        self.init(
+//            extract: { optionalPath.extract(from: $0).flatMap(path.extract(from:)) },
+//            set: { root, appendedValue in
+//                guard var value = optionalPath.extract(from: root) else { return }
+//                path.set(into: &value, appendedValue)
+//                optionalPath.set(into: &root, value)
+//            }
+//        )
+//    }
+
     public func appending<AppendedValue>(
         path: OptionalPath<Value, AppendedValue>
     ) -> OptionalPath<Root, AppendedValue> {

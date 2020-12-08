@@ -219,6 +219,24 @@ public final class Store<State, Action> {
         return localStore
     }
 
+    public func caseScope<LocalState, LocalAction, CaseState>(
+        state toLocalState: @escaping (State) -> LocalState,
+        case toCaseState: @escaping (LocalState) -> CaseState,
+        action fromLocalAction: @escaping (LocalAction) -> Action
+    ) -> Store<CaseState, LocalAction> {
+        let caseStore = Store<CaseState, LocalAction>(
+            initialState: toCaseState(toLocalState(self.state.value)),
+            reducer: { caseState, localAction in
+                self.send(fromLocalAction(localAction))
+                caseState = toCaseState(toLocalState(self.state.value))
+                return .none
+            }
+        )
+        caseStore.parentCancellable = self.state
+            .sink { [weak caseStore] newValue in caseStore?.state.value = toCaseState(toLocalState(newValue)) }
+        return caseStore
+    }
+
   /// Returns a "stateless" store by erasing state to `Void`.
   public var stateless: Store<Void, Action> {
     self.scope(state: { _ in () })

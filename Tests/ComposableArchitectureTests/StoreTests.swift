@@ -1,5 +1,6 @@
 import Combine
 import XCTest
+import CasePaths
 
 @testable import ComposableArchitecture
 
@@ -444,5 +445,62 @@ final class StoreTests: XCTestCase {
 
         XCTAssertEqual(ViewStore(parentStore).state.optionalValue, nil)
         XCTAssertEqual(ViewStore(store).state, "hello world")
+    }
+
+    func testCaseScope() throws {
+
+        enum Navigation : Equatable {
+            case childState(ChildState)
+        }
+
+        struct MainState : Equatable {
+            var navigation: Navigation = .childState(ChildState())
+        }
+
+        enum MainAction {
+            case reset
+            case childAction(ChildAction)
+        }
+
+        struct ChildState : Equatable {
+            var message: String = ""
+        }
+
+        enum ChildAction {
+            case updateMessage(String)
+        }
+
+        let childReducer = Reducer<ChildState, ChildAction, Void> { state, action, _ in
+            switch action {
+                case .updateMessage(let message):
+                    state.message = message
+            }
+            return .none
+        }
+
+        let mainReducer = Reducer<MainState, MainAction, Void>.combine(
+//            childReducer.pullback(state: OptionalPath(/Navigation.childState), action: /ChildAction.self, environment: { $0 }).pullback(state: \MainState.navigation, action: /MainAction.childAction, environment: { $0 }),
+            childReducer.pullback(state: OptionalPath(\MainState.navigation, /Navigation.childState), action: /MainAction.childAction, environment: { $0 }),
+            Reducer<MainState, MainAction, Void> { state, action, _ in
+                switch action {
+                    default:
+                        return .none
+                }
+            }
+        )
+
+        let parentStore = Store(initialState: MainState(), reducer: mainReducer, environment: ())
+        let childStore: Store<ChildState?, ChildAction> = parentStore.scope(
+            state: OptionalPath(\MainState.navigation, /Navigation.childState).extract,
+            action: { MainAction.childAction($0) }
+        )
+
+        XCTAssertEqual(ViewStore(parentStore).navigation, .childState(ChildState(message: "")))
+        XCTAssertEqual(ViewStore(childStore).state?.message, "")
+
+        childStore.send(.updateMessage("Hello World"))
+
+        XCTAssertEqual(ViewStore(parentStore).navigation, .childState(ChildState(message: "Hello World")))
+        XCTAssertEqual(ViewStore(childStore).state?.message, "Hello World")
     }
 }
